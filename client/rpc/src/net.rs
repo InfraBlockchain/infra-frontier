@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use jsonrpsee::core::RpcResult;
 // Substrate
-use sc_network::{NetworkPeers, NetworkService};
+use sc_network::NetworkService;
 use sc_network_common::ExHashT;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
@@ -28,9 +28,9 @@ use sp_runtime::traits::Block as BlockT;
 // Frontier
 use fc_rpc_core::{types::PeerCount, NetApiServer};
 use fp_rpc::EthereumRuntimeRPCApi;
+use sc_network_common::service::NetworkPeers;
 
 use crate::internal_err;
-
 /// Net API implementation.
 pub struct Net<B: BlockT, C, H: ExHashT> {
 	client: Arc<C>,

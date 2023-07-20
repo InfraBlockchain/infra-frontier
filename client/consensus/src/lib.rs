@@ -116,12 +116,16 @@ where
 	async fn import_block(
 		&mut self,
 		block: BlockImportParams<B, Self::Transaction>,
+		cache: std::collections::HashMap<sp_consensus::CacheKeyId, Vec<u8>>,
 	) -> Result<ImportResult, Self::Error> {
 		// We validate that there are only one frontier log. No other
 		// actions are needed and mapping syncing is delegated to a separate
 		// worker.
 		ensure_log(block.header.digest()).map_err(Error::from)?;
 
-		self.inner.import_block(block).await.map_err(Into::into)
+		self.inner
+			.import_block(block, cache)
+			.await
+			.map_err(Into::into)
 	}
 }
