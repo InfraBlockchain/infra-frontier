@@ -69,13 +69,18 @@ pub mod weights;
 use frame_support::{
 	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
 	traits::{
-		tokens::fungible::Inspect, Currency, ExistenceRequirement, FindAuthor, Get, Imbalance,
-		OnUnbalanced, SignedImbalance, Time, WithdrawReasons,
+		tokens::{
+			fungible::Inspect,
+			fungibles::{Balanced, Inspect as FungiblesInspect, Mutate, Transfer},
+		},
+		Currency, ExistenceRequirement, FindAuthor, Get, Imbalance, OnUnbalanced, SignedImbalance,
+		Time, WithdrawReasons,
 	},
 	weights::Weight,
 };
 use frame_system::RawOrigin;
 use impl_trait_for_tuples::impl_for_tuples;
+use scale_codec::EncodeLike;
 use scale_info::TypeInfo;
 use sp_core::{Decode, Encode, Hasher, H160, H256, U256};
 use sp_runtime::{
@@ -136,6 +141,11 @@ pub mod pallet {
 		/// Currency type for withdraw and balance storage.
 		type Currency: Currency<Self::AccountId> + Inspect<Self::AccountId>;
 
+		type Assets: Transfer<Self::AccountId>
+			+ Balanced<Self::AccountId>
+			+ Mutate<Self::AccountId>
+			+ FungiblesInspect<Self::AccountId>;
+
 		/// The overarching event type.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 		/// Precompiles associated with this EVM engine.
@@ -179,17 +189,20 @@ pub mod pallet {
 		pub fn withdraw(
 			origin: OriginFor<T>,
 			address: H160,
-			value: BalanceOf<T>,
+			value: AssetBalanceOf<T>,
 		) -> DispatchResult {
 			let destination = T::WithdrawOrigin::ensure_address_origin(&address, origin)?;
 			let address_account_id = T::AddressMapping::into_account_id(address);
+			let asset_id = NativeAssetId::<T>::get().unwrap();
 
-			T::Currency::transfer(
-				&address_account_id,
-				&destination,
-				value,
-				ExistenceRequirement::AllowDeath,
-			)?;
+			// T::Currency::transfer(
+			// 	&address_account_id,
+			// 	&destination,
+			// 	value,
+			// 	ExistenceRequirement::AllowDeath,
+			// )?;
+
+			T::Assets::transfer(asset_id, &address_account_id, &destination, value, true)?;
 
 			Ok(())
 		}
@@ -482,14 +495,23 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> GenesisBuild<T> for GenesisConfig
 	where
-		U256: UniqueSaturatedInto<BalanceOf<T>>,
+		U256: UniqueSaturatedInto<AssetBalanceOf<T>>,
+		u32: EncodeLike<
+			<<T as pallet::Config>::Assets as frame_support::traits::fungibles::Inspect<
+				<T as frame_system::Config>::AccountId,
+			>>::AssetId,
+		>,
+		<<T as pallet::Config>::Assets as frame_support::traits::fungibles::Inspect<
+			<T as frame_system::Config>::AccountId,
+		>>::AssetId: From<u32>,
 	{
 		fn build(&self) {
 			const MAX_ACCOUNT_NONCE: usize = 100;
+			NativeAssetId::<T>::put(99 as u32);
 
 			for (address, account) in &self.accounts {
 				let account_id = T::AddressMapping::into_account_id(*address);
-
+				log::info!("{:?}", account_id);
 				// ASSUME: in one single EVM transaction, the nonce will not increase more than
 				// `u128::max_value()`.
 				for _ in 0..min(
@@ -499,7 +521,12 @@ pub mod pallet {
 					frame_system::Pallet::<T>::inc_account_nonce(&account_id);
 				}
 
-				T::Currency::deposit_creating(&account_id, account.balance.unique_saturated_into());
+				// T::Currency::deposit_creating(&account_id, account.balance.unique_saturated_into());
+				let _ = T::Assets::deposit(
+					(99 as u32).into(),
+					&account_id,
+					account.balance.unique_saturated_into(),
+				);
 
 				Pallet::<T>::create_account(*address, account.code.clone());
 
@@ -509,6 +536,9 @@ pub mod pallet {
 			}
 		}
 	}
+
+	#[pallet::storage]
+	pub type NativeAssetId<T: Config> = StorageValue<_, AssetIdOf<T>, OptionQuery>;
 
 	#[pallet::storage]
 	pub type AccountCodes<T: Config> = StorageMap<_, Blake2_128Concat, H160, Vec<u8>, ValueQuery>;
@@ -529,6 +559,18 @@ pub type BalanceOf<T> =
 /// Type alias for negative imbalance during fees
 type NegativeImbalanceOf<C, T> =
 	<C as Currency<<T as frame_system::Config>::AccountId>>::NegativeImbalance;
+
+/// Type alias for negative imbalance during fees
+type OnDropCreditOf<T> =
+	<<T as Config>::Assets as Balanced<<T as frame_system::Config>::AccountId>>::OnDropCredit;
+
+// Type alias used for interaction with fungibles (assets).
+// Balance type alias.
+pub(crate) type AssetBalanceOf<T> =
+	<<T as Config>::Assets as FungiblesInspect<<T as frame_system::Config>::AccountId>>::Balance;
+/// Asset id type alias.
+pub(crate) type AssetIdOf<T> =
+	<<T as Config>::Assets as FungiblesInspect<<T as frame_system::Config>::AccountId>>::AssetId;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Encode, Decode, TypeInfo)]
 pub struct CodeMetadata {
@@ -793,10 +835,12 @@ impl<T: Config> Pallet<T> {
 	/// Get the account basic in EVM format.
 	pub fn account_basic(address: &H160) -> (Account, frame_support::weights::Weight) {
 		let account_id = T::AddressMapping::into_account_id(*address);
+		let asset_id = NativeAssetId::<T>::get().unwrap();
 
 		let nonce = frame_system::Pallet::<T>::account_nonce(&account_id);
 		// keepalive `true` takes into account ExistentialDeposit as part of what's considered liquid balance.
-		let balance = T::Currency::reducible_balance(&account_id, true);
+		// let balance = T::Currency::reducible_balance(&account_id, true);
+		let balance = T::Assets::reducible_balance(asset_id, &account_id, true);
 
 		(
 			Account {

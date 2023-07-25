@@ -109,6 +109,7 @@ frame-support = { version = "4.0.0-dev", git = "https://github.com/InfraBlockcha
 frame-system = { version = "4.0.0-dev", git = "https://github.com/InfraBlockchain/infra-substrate", branch = "master", default-features = false }
 frame-system-benchmarking = { version = "4.0.0-dev", git = "https://github.com/InfraBlockchain/infra-substrate", branch = "master", default-features = false }
 frame-system-rpc-runtime-api = { version = "4.0.0-dev", git = "https://github.com/InfraBlockchain/infra-substrate", branch = "master", default-features = false }
+pallet-assets = { version = "4.0.0-dev", git = "https://github.com/InfraBlockchain/infra-substrate", branch = "master", default-features = false }
 pallet-aura = { version = "4.0.0-dev", git = "https://github.com/InfraBlockchain/infra-substrate", branch = "master", default-features = false }
 pallet-balances = { version = "4.0.0-dev", git = "https://github.com/InfraBlockchain/infra-substrate", branch = "master", default-features = false }
 pallet-grandpa = { version = "4.0.0-dev", git = "https://github.com/InfraBlockchain/infra-substrate", branch = "master", default-features = false }
