@@ -8,12 +8,12 @@ use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 #[allow(unused_imports)]
 use sp_core::ecdsa;
-use sp_core::{storage::Storage, Pair, Public, H160, U256};
+use sp_core::{sr25519, storage::Storage, Pair, Public, H160, U256};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 use sp_state_machine::BasicExternalities;
 // Frontier
 use frontier_template_runtime::{
-	AccountId, EnableManualSeal, GenesisConfig, SS58Prefix, Signature, WASM_BINARY,
+	AccountId, AssetsConfig, EnableManualSeal, GenesisConfig, SS58Prefix, Signature, WASM_BINARY,
 };
 
 // The URL for the telemetry server.
@@ -192,7 +192,21 @@ fn testnet_genesis(
 			// Assign network admin rights.
 			key: Some(sudo_key),
 		},
-
+		assets: AssetsConfig {
+			assets: vec![(
+				99,                                                                // asset_id
+				AccountId::from(hex!("2f32E86e8fC5e762aa32a09d4970cB3216feFaf4")), // owner
+				true,                                                              // is_sufficient
+				1,                                                                 // min_balance
+			)],
+			metadata: vec![(99, "iTEST".into(), "iTEST".into(), 4)],
+			accounts: vec![(
+				99,
+				AccountId::from(hex!("2f32E86e8fC5e762aa32a09d4970cB3216feFaf4")),
+				1_000_000_000_000_000_000_000_000,
+			)],
+			..Default::default()
+		},
 		// Monetary
 		balances: BalancesConfig {
 			// Configure endowed accounts with initial balance of 1 << 60.

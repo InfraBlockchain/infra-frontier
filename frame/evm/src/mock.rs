@@ -142,7 +142,6 @@ impl crate::Config for Test {
 	type WithdrawOrigin = EnsureAddressNever<Self::AccountId>;
 	type AddressMapping = IdentityAddressMapping;
 	type Currency = Balances;
-
 	type RuntimeEvent = RuntimeEvent;
 	type PrecompilesType = MockPrecompileSet;
 	type PrecompilesValue = MockPrecompiles;
