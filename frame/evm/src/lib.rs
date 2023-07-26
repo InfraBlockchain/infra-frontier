@@ -530,7 +530,7 @@ pub mod pallet {
 
 			for (address, account) in &self.accounts {
 				let account_id = T::AddressMapping::into_account_id(*address);
-				log::info!("{:?}", account_id);
+
 				// ASSUME: in one single EVM transaction, the nonce will not increase more than
 				// `u128::max_value()`.
 				for _ in 0..min(

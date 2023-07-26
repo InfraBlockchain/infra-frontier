@@ -20,10 +20,10 @@
 use fp_evm::{IsPrecompileResult, Precompile};
 use frame_support::{
 	parameter_types,
-	traits::{ConstU32, FindAuthor},
+	traits::{AsEnsureOriginWithArg, ConstU32, FindAuthor},
 	weights::Weight,
 };
-use sp_core::{H160, H256, U256};
+use sp_core::{ConstU64, H160, H256, U256};
 use sp_runtime::{
 	generic,
 	traits::{BlakeTwo256, IdentityLookup},
@@ -48,6 +48,7 @@ frame_support::construct_runtime! {
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		Timestamp: pallet_timestamp::{Pallet, Call, Storage},
+		Assets: pallet_assets,
 		EVM: crate::{Pallet, Call, Storage, Config, Event<T>},
 	}
 }
@@ -126,6 +127,31 @@ impl FindAuthor<H160> for FindAuthorTruncated {
 		Some(H160::from_str("1234500000000000000000000000000000000000").unwrap())
 	}
 }
+
+impl pallet_assets::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Balance = u64;
+	type AssetId = u32;
+	type AssetIdParameter = u32;
+	type Currency = Balances;
+	type AssetLink = ();
+	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<Self::AccountId>>;
+	type ForceOrigin = frame_system::EnsureRoot<Self::AccountId>;
+	type AssetDeposit = ConstU64<1>;
+	type AssetAccountDeposit = ConstU64<10>;
+	type MetadataDepositBase = ConstU64<1>;
+	type MetadataDepositPerByte = ConstU64<1>;
+	type ApprovalDeposit = ConstU64<1>;
+	type StringLimit = ConstU32<50>;
+	type Freezer = ();
+	type WeightInfo = ();
+	type CallbackHandle = ();
+	type Extra = ();
+	type RemoveItemsLimit = ConstU32<5>;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = ();
+}
+
 parameter_types! {
 	pub BlockGasLimit: U256 = U256::max_value();
 	pub WeightPerGas: Weight = Weight::from_parts(20_000, 0);
@@ -142,6 +168,7 @@ impl crate::Config for Test {
 	type WithdrawOrigin = EnsureAddressNever<Self::AccountId>;
 	type AddressMapping = IdentityAddressMapping;
 	type Currency = Balances;
+	type Assets = Assets;
 	type RuntimeEvent = RuntimeEvent;
 	type PrecompilesType = MockPrecompileSet;
 	type PrecompilesValue = MockPrecompiles;
