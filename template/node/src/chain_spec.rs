@@ -232,6 +232,7 @@ fn testnet_genesis(
 		// EVM compatibility
 		evm_chain_id: EVMChainIdConfig { chain_id },
 		evm: EVMConfig {
+			asset_id: 99,
 			accounts: {
 				let mut map = BTreeMap::new();
 				map.insert(
