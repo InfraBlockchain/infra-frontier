@@ -431,6 +431,18 @@ pub mod pallet {
 				pays_fee: Pays::No,
 			})
 		}
+
+		#[pallet::call_index(4)]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::set_native_asset_id())]
+		pub fn set_native_asset_id(origin: OriginFor<T>, asset_id: AssetIdOf<T>) -> DispatchResult {
+			let _ = ensure_root(origin);
+
+			NativeAssetId::<T>::put(asset_id);
+
+			Pallet::<T>::deposit_event(Event::<T>::NativeAssetIdChanged { asset_id });
+
+			Ok(())
+		}
 	}
 
 	#[pallet::event]
@@ -446,6 +458,8 @@ pub mod pallet {
 		Executed { address: H160 },
 		/// A contract has been executed with errors. States are reverted with only gas fees applied.
 		ExecutedFailed { address: H160 },
+		/// A contract has been executed with errors. States are reverted with only gas fees applied.
+		NativeAssetIdChanged { asset_id: AssetIdOf<T> },
 	}
 
 	#[pallet::error]
