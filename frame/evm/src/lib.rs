@@ -508,6 +508,7 @@ pub mod pallet {
 	#[cfg_attr(feature = "std", derive(Default))]
 	pub struct GenesisConfig {
 		pub accounts: std::collections::BTreeMap<H160, GenesisAccount>,
+		pub asset_id: u32,
 	}
 
 	#[pallet::genesis_build]
@@ -541,7 +542,7 @@ pub mod pallet {
 
 				// T::Currency::deposit_creating(&account_id, account.balance.unique_saturated_into());
 				let _ = T::Assets::deposit(
-					(99 as u32).into(),
+					(self.asset_id).into(),
 					&account_id,
 					account.balance.unique_saturated_into(),
 				);
