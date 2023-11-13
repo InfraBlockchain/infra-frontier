@@ -19,6 +19,7 @@
 #![deny(unused_crate_dependencies)]
 
 extern crate alloc;
+
 use alloc::vec::Vec;
 use curve25519_dalek::{
 	ristretto::{CompressedRistretto, RistrettoPoint},
@@ -54,7 +55,7 @@ impl LinearCostPrecompile for Curve25519Add {
 		while !temp_buf.is_empty() {
 			let mut buf = [0; 32];
 			buf.copy_from_slice(&temp_buf[0..32]);
-			let point = CompressedRistretto::from_slice(&buf);
+			let point = CompressedRistretto(buf);
 			points.push(point);
 			temp_buf = &temp_buf[32..];
 		}
@@ -94,7 +95,7 @@ impl LinearCostPrecompile for Curve25519ScalarMul {
 		// second 32 bytes is for the compressed ristretto point bytes
 		let mut pt_buf = [0; 32];
 		pt_buf.copy_from_slice(&input[32..64]);
-		let point: RistrettoPoint = CompressedRistretto::from_slice(&pt_buf)
+		let point = CompressedRistretto(pt_buf)
 			.decompress()
 			.unwrap_or_else(RistrettoPoint::identity);
 
@@ -114,12 +115,12 @@ mod tests {
 	#[test]
 	fn test_sum() -> Result<(), PrecompileFailure> {
 		let s1 = Scalar::from(999u64);
-		let p1 = &constants::RISTRETTO_BASEPOINT_POINT * &s1;
+		let p1 = constants::RISTRETTO_BASEPOINT_POINT * s1;
 
 		let s2 = Scalar::from(333u64);
-		let p2 = &constants::RISTRETTO_BASEPOINT_POINT * &s2;
+		let p2 = constants::RISTRETTO_BASEPOINT_POINT * s2;
 
-		let vec = vec![p1.clone(), p2.clone()];
+		let vec = vec![p1, p2];
 		let mut input = vec![];
 		input.extend_from_slice(&p1.compress().to_bytes());
 		input.extend_from_slice(&p2.compress().to_bytes());
@@ -160,8 +161,8 @@ mod tests {
 	fn test_scalar_mul() -> Result<(), PrecompileFailure> {
 		let s1 = Scalar::from(999u64);
 		let s2 = Scalar::from(333u64);
-		let p1 = &constants::RISTRETTO_BASEPOINT_POINT * &s1;
-		let p2 = &constants::RISTRETTO_BASEPOINT_POINT * &s2;
+		let p1 = constants::RISTRETTO_BASEPOINT_POINT * s1;
+		let p2 = constants::RISTRETTO_BASEPOINT_POINT * s2;
 
 		let mut input = vec![];
 		input.extend_from_slice(&s1.to_bytes());

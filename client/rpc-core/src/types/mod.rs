@@ -31,14 +31,22 @@ mod receipt;
 mod sync;
 mod transaction;
 mod transaction_request;
+#[cfg(feature = "txpool")]
+mod txpool;
 mod work;
 
 pub mod pubsub;
 
+use ethereum::TransactionV2 as EthereumTransaction;
+use ethereum_types::H160;
+use serde::{de::Error, Deserialize, Deserializer};
+
+#[cfg(feature = "txpool")]
+pub use self::txpool::{Summary, TransactionMap, TxPoolResult};
 pub use self::{
 	account_info::{AccountInfo, EthAccount, ExtAccountInfo, RecoveredAccount, StorageProof},
 	block::{Block, BlockTransactions, Header, Rich, RichBlock, RichHeader},
-	block_number::BlockNumber,
+	block_number::BlockNumberOrHash,
 	bytes::Bytes,
 	call_request::{CallRequest, CallStateOverride},
 	fee::{FeeHistory, FeeHistoryCache, FeeHistoryCacheItem, FeeHistoryCacheLimit},
@@ -57,3 +65,34 @@ pub use self::{
 	transaction_request::{TransactionMessage, TransactionRequest},
 	work::Work,
 };
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+pub(crate) struct CallOrInputData {
+	data: Option<Bytes>,
+	input: Option<Bytes>,
+}
+
+/// Function to deserialize `data` and `input`  within `TransactionRequest` and `CallRequest`.
+/// It verifies that if both `data` and `input` are provided, they must be identical.
+pub(crate) fn deserialize_data_or_input<'d, D: Deserializer<'d>>(
+	d: D,
+) -> Result<Option<Bytes>, D::Error> {
+	let CallOrInputData { data, input } = CallOrInputData::deserialize(d)?;
+	match (&data, &input) {
+		(Some(data), Some(input)) => {
+			if data == input {
+				Ok(Some(data.clone()))
+			} else {
+				Err(D::Error::custom(
+					"Ambiguous value for `data` and `input`".to_string(),
+				))
+			}
+		}
+		(_, _) => Ok(data.or(input)),
+	}
+}
+
+/// The trait that used to build types from the `from` address and ethereum `transaction`.
+pub trait BuildFrom {
+	fn build_from(from: H160, transaction: &EthereumTransaction) -> Self;
+}

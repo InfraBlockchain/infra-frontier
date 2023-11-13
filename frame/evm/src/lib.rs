@@ -52,8 +52,7 @@
 
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(test, feature(assert_matches))]
-#![cfg_attr(feature = "runtime-benchmarks", deny(unused_crate_dependencies))]
+#![warn(unused_crate_dependencies)]
 #![allow(clippy::too_many_arguments)]
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -66,43 +65,47 @@ pub mod runner;
 mod tests;
 pub mod weights;
 
+pub use evm::{
+	Config as EvmConfig, Context, ExitError, ExitFatal, ExitReason, ExitRevert, ExitSucceed,
+};
+use hash_db::Hasher;
+use impl_trait_for_tuples::impl_for_tuples;
+use scale_codec::{Decode, Encode, MaxEncodedLen};
+use scale_info::TypeInfo;
+// Substrate
 use frame_support::{
 	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
+	storage::child::KillStorageResult,
 	traits::{
-		fungibles::CreditOf,
+		fungibles::Credit,
 		tokens::{
+			currency::Currency,
 			fungible::Inspect,
 			fungibles::{
 				Balanced, Imbalance as FungiblesImbalance, Inspect as FungiblesInspect, Mutate,
-				Transfer,
 			},
+			Fortitude::Polite,
+			Precision::Exact,
+			Preservation::Protect,
 		},
-		Currency, ExistenceRequirement, FindAuthor, Get, Imbalance, OnUnbalanced, SignedImbalance,
-		Time, WithdrawReasons,
+		FindAuthor, Get, Time,
 	},
 	weights::Weight,
 };
 use frame_system::RawOrigin;
-use impl_trait_for_tuples::impl_for_tuples;
-use scale_codec::EncodeLike;
-use scale_info::TypeInfo;
-use sp_core::{Decode, Encode, Hasher, H160, H256, U256};
+use sp_core::{H160, H256, U256};
 use sp_runtime::{
-	traits::{BadOrigin, Saturating, UniqueSaturatedInto, Zero},
+	traits::{BadOrigin, NumberFor, Saturating, UniqueSaturatedInto},
 	AccountId32, DispatchErrorWithPostInfo,
 };
-use sp_std::{cmp::min, vec::Vec};
-
-pub use evm::{
-	Config as EvmConfig, Context, ExitError, ExitFatal, ExitReason, ExitRevert, ExitSucceed,
-};
+use sp_std::{cmp::min, collections::btree_map::BTreeMap, vec::Vec};
+// Frontier
 use fp_account::AccountId20;
-#[cfg(feature = "std")]
 use fp_evm::GenesisAccount;
 pub use fp_evm::{
-	Account, CallInfo, CreateInfo, ExecutionInfo, FeeCalculator, InvalidEvmTransactionError,
+	Account, CallInfo, CreateInfo, ExecutionInfoV2 as ExecutionInfo, FeeCalculator,
 	IsPrecompileResult, LinearCostPrecompile, Log, Precompile, PrecompileFailure, PrecompileHandle,
-	PrecompileOutput, PrecompileResult, PrecompileSet, Vicinity,
+	PrecompileOutput, PrecompileResult, PrecompileSet, TransactionValidationError, Vicinity,
 };
 
 pub use self::{
@@ -145,8 +148,7 @@ pub mod pallet {
 		/// Currency type for withdraw and balance storage.
 		type Currency: Currency<Self::AccountId> + Inspect<Self::AccountId>;
 
-		type Assets: Transfer<Self::AccountId>
-			+ Balanced<Self::AccountId>
+		type Assets: Balanced<Self::AccountId>
 			+ Mutate<Self::AccountId>
 			+ FungiblesInspect<Self::AccountId>;
 
@@ -172,6 +174,12 @@ pub mod pallet {
 
 		/// Find author for the current block.
 		type FindAuthor: FindAuthor<H160>;
+
+		/// Gas limit Pov size ratio.
+		type GasLimitPovSizeRatio: Get<u64>;
+
+		/// Define the quick clear limit of storage clearing when a contract suicides. Set to 0 to disable it.
+		type SuicideQuickClearLimit: Get<u32>;
 
 		/// Get the timestamp for the current block.
 		type Timestamp: Time;
@@ -199,14 +207,8 @@ pub mod pallet {
 			let address_account_id = T::AddressMapping::into_account_id(address);
 			let asset_id = NativeAssetId::<T>::get().unwrap();
 
-			// T::Currency::transfer(
-			// 	&address_account_id,
-			// 	&destination,
-			// 	value,
-			// 	ExistenceRequirement::AllowDeath,
-			// )?;
-
-			T::Assets::transfer(asset_id, &address_account_id, &destination, value, true)?;
+			let _ =
+				T::Assets::transfer(asset_id, &address_account_id, &destination, value, Protect);
 
 			Ok(())
 		}
@@ -245,6 +247,8 @@ pub mod pallet {
 				access_list,
 				is_transactional,
 				validate,
+				None,
+				None,
 				T::config(),
 			) {
 				Ok(info) => info,
@@ -269,10 +273,18 @@ pub mod pallet {
 			};
 
 			Ok(PostDispatchInfo {
-				actual_weight: Some(T::GasWeightMapping::gas_to_weight(
-					info.used_gas.unique_saturated_into(),
-					true,
-				)),
+				actual_weight: {
+					let mut gas_to_weight = T::GasWeightMapping::gas_to_weight(
+						info.used_gas.standard.unique_saturated_into(),
+						true,
+					);
+					if let Some(weight_info) = info.weight_info {
+						if let Some(proof_size_usage) = weight_info.proof_size_usage {
+							*gas_to_weight.proof_size_mut() = proof_size_usage;
+						}
+					}
+					Some(gas_to_weight)
+				},
 				pays_fee: Pays::No,
 			})
 		}
@@ -310,6 +322,8 @@ pub mod pallet {
 				access_list,
 				is_transactional,
 				validate,
+				None,
+				None,
 				T::config(),
 			) {
 				Ok(info) => info,
@@ -346,10 +360,18 @@ pub mod pallet {
 			}
 
 			Ok(PostDispatchInfo {
-				actual_weight: Some(T::GasWeightMapping::gas_to_weight(
-					info.used_gas.unique_saturated_into(),
-					true,
-				)),
+				actual_weight: {
+					let mut gas_to_weight = T::GasWeightMapping::gas_to_weight(
+						info.used_gas.standard.unique_saturated_into(),
+						true,
+					);
+					if let Some(weight_info) = info.weight_info {
+						if let Some(proof_size_usage) = weight_info.proof_size_usage {
+							*gas_to_weight.proof_size_mut() = proof_size_usage;
+						}
+					}
+					Some(gas_to_weight)
+				},
 				pays_fee: Pays::No,
 			})
 		}
@@ -388,6 +410,8 @@ pub mod pallet {
 				access_list,
 				is_transactional,
 				validate,
+				None,
+				None,
 				T::config(),
 			) {
 				Ok(info) => info,
@@ -424,10 +448,18 @@ pub mod pallet {
 			}
 
 			Ok(PostDispatchInfo {
-				actual_weight: Some(T::GasWeightMapping::gas_to_weight(
-					info.used_gas.unique_saturated_into(),
-					true,
-				)),
+				actual_weight: {
+					let mut gas_to_weight = T::GasWeightMapping::gas_to_weight(
+						info.used_gas.standard.unique_saturated_into(),
+						true,
+					);
+					if let Some(weight_info) = info.weight_info {
+						if let Some(proof_size_usage) = weight_info.proof_size_usage {
+							*gas_to_weight.proof_size_mut() = proof_size_usage;
+						}
+					}
+					Some(gas_to_weight)
+				},
 				pays_fee: Pays::No,
 			})
 		}
@@ -437,7 +469,7 @@ pub mod pallet {
 		pub fn set_native_asset_id(origin: OriginFor<T>, asset_id: AssetIdOf<T>) -> DispatchResult {
 			let _ = ensure_root(origin);
 
-			NativeAssetId::<T>::put(asset_id);
+			NativeAssetId::<T>::put(asset_id.clone());
 
 			Pallet::<T>::deposit_event(Event::<T>::NativeAssetIdChanged { asset_id });
 
@@ -480,42 +512,50 @@ pub mod pallet {
 		GasLimitTooLow,
 		/// Gas limit is too high.
 		GasLimitTooHigh,
-		/// Undefined error.
-		Undefined,
+		/// The chain id is invalid.
+		InvalidChainId,
+		/// the signature is invalid.
+		InvalidSignature,
 		/// EVM reentrancy
 		Reentrancy,
 		/// EIP-3607,
 		TransactionMustComeFromEOA,
+		/// Undefined error.
+		Undefined,
 	}
 
-	impl<T> From<InvalidEvmTransactionError> for Error<T> {
-		fn from(validation_error: InvalidEvmTransactionError) -> Self {
+	impl<T> From<TransactionValidationError> for Error<T> {
+		fn from(validation_error: TransactionValidationError) -> Self {
 			match validation_error {
-				InvalidEvmTransactionError::GasLimitTooLow => Error::<T>::GasLimitTooLow,
-				InvalidEvmTransactionError::GasLimitTooHigh => Error::<T>::GasLimitTooHigh,
-				InvalidEvmTransactionError::GasPriceTooLow => Error::<T>::GasPriceTooLow,
-				InvalidEvmTransactionError::PriorityFeeTooHigh => Error::<T>::GasPriceTooLow,
-				InvalidEvmTransactionError::BalanceTooLow => Error::<T>::BalanceLow,
-				InvalidEvmTransactionError::TxNonceTooLow => Error::<T>::InvalidNonce,
-				InvalidEvmTransactionError::TxNonceTooHigh => Error::<T>::InvalidNonce,
-				InvalidEvmTransactionError::InvalidPaymentInput => Error::<T>::GasPriceTooLow,
-				_ => Error::<T>::Undefined,
+				TransactionValidationError::GasLimitTooLow => Error::<T>::GasLimitTooLow,
+				TransactionValidationError::GasLimitTooHigh => Error::<T>::GasLimitTooHigh,
+				TransactionValidationError::BalanceTooLow => Error::<T>::BalanceLow,
+				TransactionValidationError::TxNonceTooLow => Error::<T>::InvalidNonce,
+				TransactionValidationError::TxNonceTooHigh => Error::<T>::InvalidNonce,
+				TransactionValidationError::GasPriceTooLow => Error::<T>::GasPriceTooLow,
+				TransactionValidationError::PriorityFeeTooHigh => Error::<T>::GasPriceTooLow,
+				TransactionValidationError::InvalidFeeInput => Error::<T>::GasPriceTooLow,
+				TransactionValidationError::InvalidChainId => Error::<T>::InvalidChainId,
+				TransactionValidationError::InvalidSignature => Error::<T>::InvalidSignature,
+				TransactionValidationError::UnknownError => Error::<T>::Undefined,
 			}
 		}
 	}
 
 	#[pallet::genesis_config]
-	#[cfg_attr(feature = "std", derive(Default))]
-	pub struct GenesisConfig {
-		pub accounts: std::collections::BTreeMap<H160, GenesisAccount>,
+	#[derive(frame_support::DefaultNoBound)]
+	pub struct GenesisConfig<T> {
+		pub accounts: BTreeMap<H160, GenesisAccount>,
 		pub asset_id: u32,
+		#[serde(skip)]
+		pub _marker: PhantomData<T>,
 	}
 
 	#[pallet::genesis_build]
-	impl<T: Config> GenesisBuild<T> for GenesisConfig
+	impl<T: Config> BuildGenesisConfig for GenesisConfig<T>
 	where
 		U256: UniqueSaturatedInto<AssetBalanceOf<T>>,
-		u32: EncodeLike<
+		u32: scale_codec::EncodeLike<
 			<<T as pallet::Config>::Assets as frame_support::traits::fungibles::Inspect<
 				<T as frame_system::Config>::AccountId,
 			>>::AssetId,
@@ -526,7 +566,7 @@ pub mod pallet {
 	{
 		fn build(&self) {
 			const MAX_ACCOUNT_NONCE: usize = 100;
-			NativeAssetId::<T>::put(99 as u32);
+			NativeAssetId::<T>::put(self.asset_id);
 
 			for (address, account) in &self.accounts {
 				let account_id = T::AddressMapping::into_account_id(*address);
@@ -540,11 +580,11 @@ pub mod pallet {
 					frame_system::Pallet::<T>::inc_account_nonce(&account_id);
 				}
 
-				// T::Currency::deposit_creating(&account_id, account.balance.unique_saturated_into());
 				let _ = T::Assets::deposit(
 					(self.asset_id).into(),
 					&account_id,
 					account.balance.unique_saturated_into(),
+					Exact,
 				);
 
 				Pallet::<T>::create_account(*address, account.code.clone());
@@ -569,19 +609,14 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type AccountStorages<T: Config> =
 		StorageDoubleMap<_, Blake2_128Concat, H160, Blake2_128Concat, H256, H256, ValueQuery>;
+
+	#[pallet::storage]
+	pub type Suicided<T: Config> = StorageMap<_, Blake2_128Concat, H160, (), OptionQuery>;
 }
 
 /// Type alias for currency balance.
 pub type BalanceOf<T> =
 	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-
-/// Type alias for negative imbalance during fees
-type NegativeImbalanceOf<C, T> =
-	<C as Currency<<T as frame_system::Config>::AccountId>>::NegativeImbalance;
-
-/// Type alias for negative imbalance during fees
-type OnDropCreditOf<T> =
-	<<T as Config>::Assets as Balanced<<T as frame_system::Config>::AccountId>>::OnDropCredit;
 
 // Type alias used for interaction with fungibles (assets).
 // Balance type alias.
@@ -591,7 +626,17 @@ pub(crate) type AssetBalanceOf<T> =
 pub(crate) type AssetIdOf<T> =
 	<<T as Config>::Assets as FungiblesInspect<<T as frame_system::Config>::AccountId>>::AssetId;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Encode, Decode, TypeInfo)]
+#[derive(
+	Debug,
+	Clone,
+	Copy,
+	Eq,
+	PartialEq,
+	Encode,
+	Decode,
+	TypeInfo,
+	MaxEncodedLen
+)]
 pub struct CodeMetadata {
 	pub size: u64,
 	pub hash: H256,
@@ -746,7 +791,7 @@ pub trait BlockHashMapping {
 pub struct SubstrateBlockHashMapping<T>(sp_std::marker::PhantomData<T>);
 impl<T: Config> BlockHashMapping for SubstrateBlockHashMapping<T> {
 	fn block_hash(number: u32) -> H256 {
-		let number = T::BlockNumber::from(number);
+		let number = <NumberFor<T::Block>>::from(number);
 		H256::from_slice(frame_system::Pallet::<T>::block_hash(number).as_ref())
 	}
 }
@@ -768,6 +813,13 @@ impl<T: Config> GasWeightMapping for FixedGasWeightMapping<T> {
 					.base_extrinsic,
 			);
 		}
+		// Apply a gas to proof size ratio based on BlockGasLimit
+		let ratio = T::GasLimitPovSizeRatio::get();
+		if ratio > 0 {
+			let proof_size = gas.saturating_div(ratio);
+			*weight.proof_size_mut() = proof_size;
+		}
+
 		weight
 	}
 	fn weight_to_gas(weight: Weight) -> u64 {
@@ -796,18 +848,44 @@ impl<T: Config> Pallet<T> {
 	/// Remove an account.
 	pub fn remove_account(address: &H160) {
 		if <AccountCodes<T>>::contains_key(address) {
+			// Remember to call `dec_sufficients` when clearing Suicided.
+			<Suicided<T>>::insert(address, ());
+
+			// In theory, we can always have pre-EIP161 contracts, so we
+			// make sure the account nonce is at least one.
 			let account_id = T::AddressMapping::into_account_id(*address);
-			let _ = frame_system::Pallet::<T>::dec_sufficients(&account_id);
+			frame_system::Pallet::<T>::inc_account_nonce(&account_id);
 		}
 
 		<AccountCodes<T>>::remove(address);
 		<AccountCodesMetadata<T>>::remove(address);
-		#[allow(deprecated)]
-		let _ = <AccountStorages<T>>::remove_prefix(address, None);
+
+		if T::SuicideQuickClearLimit::get() > 0 {
+			#[allow(deprecated)]
+			let res = <AccountStorages<T>>::remove_prefix(address, Some(T::SuicideQuickClearLimit::get()));
+
+			match res {
+				KillStorageResult::AllRemoved(_) => {
+					<Suicided<T>>::remove(address);
+
+					let account_id = T::AddressMapping::into_account_id(*address);
+					let _ = frame_system::Pallet::<T>::dec_sufficients(&account_id);
+				}
+				KillStorageResult::SomeRemaining(_) => (),
+			}
+		}
 	}
 
 	/// Create an account.
 	pub fn create_account(address: H160, code: Vec<u8>) {
+		if <Suicided<T>>::contains_key(address) {
+			// This branch should never trigger, because when Suicided
+			// contains an address, then its nonce will be at least one,
+			// which causes CreateCollision error in EVM, but we add it
+			// here for safeguard.
+			return;
+		}
+
 		if code.is_empty() {
 			return;
 		}
@@ -858,8 +936,7 @@ impl<T: Config> Pallet<T> {
 
 		let nonce = frame_system::Pallet::<T>::account_nonce(&account_id);
 		// keepalive `true` takes into account ExistentialDeposit as part of what's considered liquid balance.
-		// let balance = T::Currency::reducible_balance(&account_id, true);
-		let balance = T::Assets::reducible_balance(asset_id, &account_id, true);
+		let balance = T::Assets::reducible_balance(asset_id, &account_id, Protect, Polite);
 
 		(
 			Account {
@@ -916,7 +993,7 @@ where
 	U256: UniqueSaturatedInto<AssetBalanceOf<T>>,
 {
 	// Kept type as Option to satisfy bound of Default
-	type LiquidityInfo = Option<CreditOf<T::AccountId, T::Assets>>;
+	type LiquidityInfo = Option<Credit<T::AccountId, T::Assets>>;
 
 	fn withdraw_fee(who: &H160, fee: U256) -> Result<Self::LiquidityInfo, Error<T>> {
 		if fee.is_zero() {
@@ -924,31 +1001,38 @@ where
 		}
 		let asset_id = NativeAssetId::<T>::get().unwrap();
 		let account_id = T::AddressMapping::into_account_id(*who);
-		let imbalance = T::Assets::withdraw(asset_id, &account_id, fee.unique_saturated_into())
-			.map_err(|_| Error::<T>::BalanceLow)?;
+		let imbalance = T::Assets::withdraw(
+			asset_id,
+			&account_id,
+			fee.unique_saturated_into(),
+			Exact,
+			Protect,
+			Polite,
+		)
+		.map_err(|_| Error::<T>::BalanceLow)?;
 		Ok(Some(imbalance))
 	}
 
 	fn correct_and_deposit_fee(
 		who: &H160,
 		corrected_fee: U256,
-		base_fee: U256,
+		_base_fee: U256,
 		already_withdrawn: Self::LiquidityInfo,
 	) -> Self::LiquidityInfo {
 		if let Some(paid) = already_withdrawn {
 			let account_id = T::AddressMapping::into_account_id(*who);
 			let asset_id = NativeAssetId::<T>::get().unwrap();
-			let zero = FungiblesImbalance::zero(asset_id);
-			// Calculate how much refund we should return
+			let zero = FungiblesImbalance::zero(asset_id.clone());
 
+			// Calculate how much refund we should return
 			let refund_amount = paid
 				.peek()
 				.saturating_sub(corrected_fee.unique_saturated_into());
 			// refund to the account that paid the fees. If this fails, the
 			// account might have dropped below the existential balance. In
 			// that case we don't refund anything.
-			let refund_imbalance =
-				T::Assets::deposit(asset_id, &account_id, refund_amount).unwrap_or_else(|_| zero);
+			let _refund_imbalance = T::Assets::deposit(asset_id, &account_id, refund_amount, Exact)
+				.unwrap_or_else(|_| zero);
 
 			return None;
 		}
@@ -960,7 +1044,7 @@ where
 		if let Some(tip) = tip {
 			let account_id = T::AddressMapping::into_account_id(<Pallet<T>>::find_author());
 			let asset_id = NativeAssetId::<T>::get().unwrap();
-			let _ = T::Assets::deposit(asset_id, &account_id, tip.peek());
+			let _ = T::Assets::deposit(asset_id, &account_id, tip.peek(), Exact);
 		}
 	}
 }
@@ -972,7 +1056,7 @@ where
 	U256: UniqueSaturatedInto<AssetBalanceOf<T>>,
 {
 	// Kept type as Option to satisfy bound of Default
-	type LiquidityInfo = Option<CreditOf<T::AccountId, T::Assets>>;
+	type LiquidityInfo = Option<Credit<T::AccountId, T::Assets>>;
 
 	fn withdraw_fee(who: &H160, fee: U256) -> Result<Self::LiquidityInfo, Error<T>> {
 		EVMAssetsAdapter::<T>::withdraw_fee(who, fee)

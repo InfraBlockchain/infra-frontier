@@ -17,39 +17,29 @@
 
 //! Test mock for unit tests and benchmarking
 
-use fp_evm::{IsPrecompileResult, Precompile};
 use frame_support::{
 	parameter_types,
-	traits::{AsEnsureOriginWithArg, ConstU32, FindAuthor},
+	traits::{ConstU32, FindAuthor},
 	weights::Weight,
 };
-use sp_core::{ConstU64, H160, H256, U256};
+use sp_core::{H160, H256, U256};
 use sp_runtime::{
-	generic,
 	traits::{BlakeTwo256, IdentityLookup},
 	ConsensusEngineId,
 };
 use sp_std::{boxed::Box, prelude::*, str::FromStr};
 
 use crate::{
-	EnsureAddressNever, EnsureAddressRoot, FeeCalculator, IdentityAddressMapping, PrecompileHandle,
-	PrecompileResult, PrecompileSet,
+	EnsureAddressNever, EnsureAddressRoot, FeeCalculator, IdentityAddressMapping,
+	IsPrecompileResult, Precompile, PrecompileHandle, PrecompileResult, PrecompileSet,
 };
 
-type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
-type Block = frame_system::mocking::MockBlock<Test>;
-
 frame_support::construct_runtime! {
-	pub enum Test where
-		Block = Block,
-		NodeBlock = Block,
-		UncheckedExtrinsic = UncheckedExtrinsic,
-	{
-		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
+	pub enum Test {
+		System: frame_system::{Pallet, Call, Config<T>, Storage, Event<T>},
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		Timestamp: pallet_timestamp::{Pallet, Call, Storage},
-		Assets: pallet_assets,
-		EVM: crate::{Pallet, Call, Storage, Config, Event<T>},
+		EVM: crate::{Pallet, Call, Storage, Config<T>, Event<T>},
 	}
 }
 
@@ -59,19 +49,18 @@ parameter_types! {
 		frame_system::limits::BlockWeights::simple_max(Weight::from_parts(1024, 0));
 }
 impl frame_system::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 	type BaseCallFilter = frame_support::traits::Everything;
 	type BlockWeights = ();
 	type BlockLength = ();
 	type RuntimeOrigin = RuntimeOrigin;
 	type RuntimeCall = RuntimeCall;
-	type Index = u64;
-	type BlockNumber = u64;
+	type Nonce = u64;
 	type Hash = H256;
 	type Hashing = BlakeTwo256;
 	type AccountId = H160;
 	type Lookup = IdentityLookup<Self::AccountId>;
-	type Header = generic::Header<u64, BlakeTwo256>;
-	type RuntimeEvent = RuntimeEvent;
+	type Block = frame_system::mocking::MockBlock<Self>;
 	type BlockHashCount = BlockHashCount;
 	type DbWeight = ();
 	type Version = ();
@@ -89,15 +78,19 @@ parameter_types! {
 	pub const ExistentialDeposit: u64 = 0;
 }
 impl pallet_balances::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type WeightInfo = ();
 	type Balance = u64;
 	type DustRemoval = ();
-	type RuntimeEvent = RuntimeEvent;
 	type ExistentialDeposit = ExistentialDeposit;
 	type AccountStore = System;
-	type WeightInfo = ();
+	type ReserveIdentifier = ();
+	type RuntimeHoldReason = ();
+	type FreezeIdentifier = ();
 	type MaxLocks = ();
 	type MaxReserves = ();
-	type ReserveIdentifier = ();
+	type MaxHolds = ();
+	type MaxFreezes = ();
 }
 
 parameter_types! {
@@ -127,35 +120,15 @@ impl FindAuthor<H160> for FindAuthorTruncated {
 		Some(H160::from_str("1234500000000000000000000000000000000000").unwrap())
 	}
 }
-
-impl pallet_assets::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
-	type Balance = u64;
-	type AssetId = u32;
-	type AssetIdParameter = u32;
-	type Currency = Balances;
-	type AssetLink = ();
-	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<Self::AccountId>>;
-	type ForceOrigin = frame_system::EnsureRoot<Self::AccountId>;
-	type AssetDeposit = ConstU64<1>;
-	type AssetAccountDeposit = ConstU64<10>;
-	type MetadataDepositBase = ConstU64<1>;
-	type MetadataDepositPerByte = ConstU64<1>;
-	type ApprovalDeposit = ConstU64<1>;
-	type StringLimit = ConstU32<50>;
-	type Freezer = ();
-	type WeightInfo = ();
-	type CallbackHandle = ();
-	type Extra = ();
-	type RemoveItemsLimit = ConstU32<5>;
-	#[cfg(feature = "runtime-benchmarks")]
-	type BenchmarkHelper = ();
-}
+const BLOCK_GAS_LIMIT: u64 = 150_000_000;
+const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
 
 parameter_types! {
-	pub BlockGasLimit: U256 = U256::max_value();
+	pub BlockGasLimit: U256 = U256::from(BLOCK_GAS_LIMIT);
+	pub const GasLimitPovSizeRatio: u64 = BLOCK_GAS_LIMIT.saturating_div(MAX_POV_SIZE);
 	pub WeightPerGas: Weight = Weight::from_parts(20_000, 0);
 	pub MockPrecompiles: MockPrecompileSet = MockPrecompileSet;
+	pub SuicideQuickClearLimit: u32 = 0;
 }
 impl crate::Config for Test {
 	type FeeCalculator = FixedGasPrice;
@@ -168,7 +141,7 @@ impl crate::Config for Test {
 	type WithdrawOrigin = EnsureAddressNever<Self::AccountId>;
 	type AddressMapping = IdentityAddressMapping;
 	type Currency = Balances;
-	type Assets = Assets;
+
 	type RuntimeEvent = RuntimeEvent;
 	type PrecompilesType = MockPrecompileSet;
 	type PrecompilesValue = MockPrecompiles;
@@ -178,6 +151,8 @@ impl crate::Config for Test {
 	type OnChargeTransaction = ();
 	type OnCreate = ();
 	type FindAuthor = FindAuthorTruncated;
+	type GasLimitPovSizeRatio = GasLimitPovSizeRatio;
+	type SuicideQuickClearLimit = SuicideQuickClearLimit;
 	type Timestamp = Timestamp;
 	type WeightInfo = ();
 }

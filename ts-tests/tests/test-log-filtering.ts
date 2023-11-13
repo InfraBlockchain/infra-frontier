@@ -27,26 +27,26 @@ describeWithFrontier("Frontier RPC (Log filtering)", (context) => {
 
 	function getNonMatchingCases(receipt: TransactionReceipt) {
 		return [
-			// Non-existant address.
+			// Non-existent address.
 			{
 				fromBlock: "0x0",
 				toBlock: "latest",
 				address: "0x0000000000000000000000000000000000000000",
 			},
-			// Non-existant topic.
+			// Non-existent topic.
 			{
 				fromBlock: "0x0",
 				toBlock: "latest",
 				topics: ["0x0000000000000000000000000000000000000000000000000000000000000000"],
 			},
-			// Existant address + non-existant topic.
+			// Existent address + non-existent topic.
 			{
 				fromBlock: "0x0",
 				toBlock: "latest",
 				address: receipt.contractAddress,
 				topics: ["0x0000000000000000000000000000000000000000000000000000000000000000"],
 			},
-			// Non-existant address + existant topic.
+			// Non-existent address + existent topic.
 			{
 				fromBlock: "0x0",
 				toBlock: "latest",
@@ -82,5 +82,15 @@ describeWithFrontier("Frontier RPC (Log filtering)", (context) => {
 			let request = await customRequest(context.web3, "eth_getLogs", [item]);
 			expect(request.result.length).to.be.eq(0);
 		}
+	});
+
+	step("EthApi::getLogs - should return `unknown block`.", async function () {
+		let request = await customRequest(context.web3, "eth_getLogs", [
+			{
+				blockHash: "0x1234000000000000000000000000000000000000000000000000000000000000",
+			},
+		]);
+		expect(request.error.message).to.be.equal("unknown block");
+		expect(request.error.code).to.be.equal(-32000);
 	});
 });

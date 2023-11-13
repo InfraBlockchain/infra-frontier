@@ -8,19 +8,19 @@ use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 #[allow(unused_imports)]
 use sp_core::ecdsa;
-use sp_core::{sr25519, storage::Storage, Pair, Public, H160, U256};
+use sp_core::{storage::Storage, Pair, Public, H160, U256};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 use sp_state_machine::BasicExternalities;
 // Frontier
 use frontier_template_runtime::{
-	AccountId, AssetsConfig, EnableManualSeal, GenesisConfig, SS58Prefix, Signature, WASM_BINARY,
+	AccountId, Balance, EnableManualSeal, RuntimeGenesisConfig, SS58Prefix, Signature, WASM_BINARY,
 };
 
 // The URL for the telemetry server.
 // const STAGING_TELEMETRY_URL: &str = "wss://telemetry.polkadot.io/submit/";
 
 /// Specialized `ChainSpec`. This is a specialization of the general Substrate ChainSpec type.
-pub type ChainSpec = sc_service::GenericChainSpec<GenesisConfig>;
+pub type ChainSpec = sc_service::GenericChainSpec<RuntimeGenesisConfig>;
 
 /// Specialized `ChainSpec` for development.
 pub type DevChainSpec = sc_service::GenericChainSpec<DevGenesisExt>;
@@ -29,7 +29,7 @@ pub type DevChainSpec = sc_service::GenericChainSpec<DevGenesisExt>;
 #[derive(Serialize, Deserialize)]
 pub struct DevGenesisExt {
 	/// Genesis config.
-	genesis_config: GenesisConfig,
+	genesis_config: RuntimeGenesisConfig,
 	/// The flag that if enable manual-seal mode.
 	enable_manual_seal: Option<bool>,
 }
@@ -76,6 +76,8 @@ fn properties() -> Properties {
 	properties.insert("ss58Format".into(), SS58Prefix::get().into());
 	properties
 }
+
+const UNITS: Balance = 1_000_000_000_000_000_000;
 
 pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
 	let wasm_binary = WASM_BINARY.expect("WASM not available");
@@ -161,6 +163,7 @@ pub fn local_testnet_config() -> ChainSpec {
 		None,
 		// Protocol ID
 		None,
+		// Fork ID
 		None,
 		// Properties
 		None,
@@ -176,17 +179,18 @@ fn testnet_genesis(
 	endowed_accounts: Vec<AccountId>,
 	initial_authorities: Vec<(AuraId, GrandpaId)>,
 	chain_id: u64,
-) -> GenesisConfig {
+) -> RuntimeGenesisConfig {
 	use frontier_template_runtime::{
-		AuraConfig, BalancesConfig, EVMChainIdConfig, EVMConfig, GrandpaConfig, SudoConfig,
-		SystemConfig,
+		AssetsConfig, AuraConfig, BalancesConfig, EVMChainIdConfig, EVMConfig, GrandpaConfig,
+		SudoConfig, SystemConfig,
 	};
 
-	GenesisConfig {
+	RuntimeGenesisConfig {
 		// System
 		system: SystemConfig {
 			// Add Wasm runtime to storage.
 			code: wasm_binary.to_vec(),
+			..Default::default()
 		},
 		sudo: SudoConfig {
 			// Assign network admin rights.
@@ -209,11 +213,10 @@ fn testnet_genesis(
 		},
 		// Monetary
 		balances: BalancesConfig {
-			// Configure endowed accounts with initial balance of 1 << 60.
 			balances: endowed_accounts
 				.iter()
 				.cloned()
-				.map(|k| (k, 1 << 60))
+				.map(|k| (k, 1_000_000 * UNITS))
 				.collect(),
 		},
 		transaction_payment: Default::default(),
@@ -227,10 +230,14 @@ fn testnet_genesis(
 				.iter()
 				.map(|x| (x.1.clone(), 1))
 				.collect(),
+			..Default::default()
 		},
 
 		// EVM compatibility
-		evm_chain_id: EVMChainIdConfig { chain_id },
+		evm_chain_id: EVMChainIdConfig {
+			chain_id,
+			..Default::default()
+		},
 		evm: EVMConfig {
 			asset_id: 99,
 			accounts: {
@@ -276,6 +283,7 @@ fn testnet_genesis(
 				);
 				map
 			},
+			..Default::default()
 		},
 		ethereum: Default::default(),
 		dynamic_fee: Default::default(),
