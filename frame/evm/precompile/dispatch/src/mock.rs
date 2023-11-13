@@ -19,11 +19,11 @@
 
 use frame_support::{
 	parameter_types,
-	traits::{ConstU32, FindAuthor},
+	traits::{AsEnsureOriginWithArg, ConstU32, FindAuthor},
 	weights::Weight,
 	ConsensusEngineId,
 };
-use sp_core::{H160, H256, U256};
+use sp_core::{ConstU64, H160, H256, U256};
 use sp_runtime::traits::{BlakeTwo256, IdentityLookup};
 use sp_std::{boxed::Box, prelude::*, str::FromStr};
 
@@ -39,6 +39,7 @@ frame_support::construct_runtime! {
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		Timestamp: pallet_timestamp::{Pallet, Call, Storage},
 		EVM: pallet_evm::{Pallet, Call, Storage, Config<T>, Event<T>},
+		Assets: pallet_assets,
 		Utility: pallet_utility::{Pallet, Call, Event},
 	}
 }
@@ -110,6 +111,30 @@ impl pallet_timestamp::Config for Test {
 	type WeightInfo = ();
 }
 
+impl pallet_assets::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Balance = u64;
+	type AssetId = u32;
+	type AssetIdParameter = u32;
+	type Currency = Balances;
+	type AssetLink = ();
+	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<Self::AccountId>>;
+	type ForceOrigin = frame_system::EnsureRoot<Self::AccountId>;
+	type AssetDeposit = ConstU64<1>;
+	type AssetAccountDeposit = ConstU64<10>;
+	type MetadataDepositBase = ConstU64<1>;
+	type MetadataDepositPerByte = ConstU64<1>;
+	type ApprovalDeposit = ConstU64<1>;
+	type StringLimit = ConstU32<50>;
+	type Freezer = ();
+	type WeightInfo = ();
+	type CallbackHandle = ();
+	type Extra = ();
+	type RemoveItemsLimit = ConstU32<5>;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = ();
+}
+
 pub struct FixedGasPrice;
 impl FeeCalculator for FixedGasPrice {
 	fn min_gas_price() -> (U256, Weight) {
@@ -139,7 +164,7 @@ impl pallet_evm::Config for Test {
 
 	type BlockHashMapping = pallet_evm::SubstrateBlockHashMapping<Self>;
 	type CallOrigin = EnsureAddressRoot<Self::AccountId>;
-
+	type Assets = Assets;
 	type WithdrawOrigin = EnsureAddressNever<Self::AccountId>;
 	type AddressMapping = IdentityAddressMapping;
 	type Currency = Balances;

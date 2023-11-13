@@ -19,7 +19,7 @@
 
 use frame_support::{
 	parameter_types,
-	traits::{ConstU32, FindAuthor},
+	traits::{AsEnsureOriginWithArg, ConstU32, ConstU64, FindAuthor},
 	weights::Weight,
 };
 use sp_core::{H160, H256, U256};
@@ -40,6 +40,7 @@ frame_support::construct_runtime! {
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		Timestamp: pallet_timestamp::{Pallet, Call, Storage},
 		EVM: crate::{Pallet, Call, Storage, Config<T>, Event<T>},
+		Assets: pallet_assets,
 	}
 }
 
@@ -103,6 +104,30 @@ impl pallet_timestamp::Config for Test {
 	type WeightInfo = ();
 }
 
+impl pallet_assets::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Balance = u64;
+	type AssetId = u32;
+	type AssetIdParameter = u32;
+	type Currency = Balances;
+	type AssetLink = ();
+	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<Self::AccountId>>;
+	type ForceOrigin = frame_system::EnsureRoot<Self::AccountId>;
+	type AssetDeposit = ConstU64<1>;
+	type AssetAccountDeposit = ConstU64<10>;
+	type MetadataDepositBase = ConstU64<1>;
+	type MetadataDepositPerByte = ConstU64<1>;
+	type ApprovalDeposit = ConstU64<1>;
+	type StringLimit = ConstU32<50>;
+	type Freezer = ();
+	type WeightInfo = ();
+	type CallbackHandle = ();
+	type Extra = ();
+	type RemoveItemsLimit = ConstU32<5>;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = ();
+}
+
 pub struct FixedGasPrice;
 impl FeeCalculator for FixedGasPrice {
 	fn min_gas_price() -> (U256, Weight) {
@@ -141,7 +166,7 @@ impl crate::Config for Test {
 	type WithdrawOrigin = EnsureAddressNever<Self::AccountId>;
 	type AddressMapping = IdentityAddressMapping;
 	type Currency = Balances;
-
+	type Assets = Assets;
 	type RuntimeEvent = RuntimeEvent;
 	type PrecompilesType = MockPrecompileSet;
 	type PrecompilesValue = MockPrecompiles;
