@@ -26,7 +26,8 @@ use evm::{
 // Substrate
 use frame_support::{
 	traits::{
-		tokens::{currency::Currency, ExistenceRequirement},
+		fungibles::Mutate,
+		tokens::{currency::Currency, ExistenceRequirement, Preservation},
 		Get, Time,
 	},
 	weights::Weight,
@@ -49,8 +50,8 @@ use fp_evm::{
 
 use crate::{
 	runner::Runner as RunnerT, AccountCodes, AccountCodesMetadata, AccountStorages, AddressMapping,
-	BalanceOf, BlockHashMapping, Config, Error, Event, FeeCalculator, OnChargeEVMTransaction,
-	OnCreate, Pallet, RunnerError,
+	AssetBalanceOf, BalanceOf, BlockHashMapping, Config, Error, Event, FeeCalculator,
+	NativeAssetId, OnChargeEVMTransaction, OnCreate, Pallet, RunnerError,
 };
 
 #[cfg(feature = "forbid-evm-reentrancy")]
@@ -64,6 +65,7 @@ pub struct Runner<T: Config> {
 impl<T: Config> Runner<T>
 where
 	BalanceOf<T>: TryFrom<U256> + Into<U256>,
+	AssetBalanceOf<T>: TryFrom<U256> + Into<U256>,
 {
 	#[allow(clippy::let_and_return)]
 	/// Execute an already validated EVM operation.
@@ -355,6 +357,7 @@ where
 impl<T: Config> RunnerT<T> for Runner<T>
 where
 	BalanceOf<T>: TryFrom<U256> + Into<U256>,
+	AssetBalanceOf<T>: TryFrom<U256> + Into<U256>,
 {
 	type Error = Error<T>;
 
@@ -722,6 +725,7 @@ impl<'vicinity, 'config, T: Config> SubstrateStackState<'vicinity, 'config, T> {
 impl<'vicinity, 'config, T: Config> BackendT for SubstrateStackState<'vicinity, 'config, T>
 where
 	BalanceOf<T>: TryFrom<U256> + Into<U256>,
+	AssetBalanceOf<T>: TryFrom<U256> + Into<U256>,
 {
 	fn gas_price(&self) -> U256 {
 		self.vicinity.gas_price
@@ -808,6 +812,8 @@ impl<'vicinity, 'config, T: Config> StackStateT<'config>
 	for SubstrateStackState<'vicinity, 'config, T>
 where
 	BalanceOf<T>: TryFrom<U256> + Into<U256>,
+	BalanceOf<T>: TryFrom<U256> + Into<U256>,
+	AssetBalanceOf<T>: TryFrom<U256> + Into<U256>,
 {
 	fn metadata(&self) -> &StackSubstateMetadata<'config> {
 		self.substate.metadata()
@@ -906,16 +912,21 @@ where
 	fn transfer(&mut self, transfer: Transfer) -> Result<(), ExitError> {
 		let source = T::AddressMapping::into_account_id(transfer.source);
 		let target = T::AddressMapping::into_account_id(transfer.target);
-		T::Currency::transfer(
+		let asset_id = NativeAssetId::<T>::get().unwrap();
+
+		T::Assets::transfer(
+			asset_id,
 			&source,
 			&target,
 			transfer
 				.value
 				.try_into()
 				.map_err(|_| ExitError::OutOfFund)?,
-			ExistenceRequirement::AllowDeath,
+			Preservation::Protect,
 		)
-		.map_err(|_| ExitError::OutOfFund)
+		.map_err(|_| ExitError::OutOfFund)?;
+
+		Ok(())
 	}
 
 	fn reset_balance(&mut self, _address: H160) {
