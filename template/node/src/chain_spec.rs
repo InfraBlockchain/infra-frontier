@@ -203,7 +203,7 @@ fn testnet_genesis(
 				true,                                                              // is_sufficient
 				1,                                                                 // min_balance
 			)],
-			metadata: vec![(99, "iTEST".into(), "iTEST".into(), 4)],
+			metadata: vec![(99, "iTEST".into(), "iTEST".into(), 18)],
 			accounts: vec![(
 				99,
 				AccountId::from(hex!("2f32E86e8fC5e762aa32a09d4970cB3216feFaf4")),

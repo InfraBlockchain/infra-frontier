@@ -914,19 +914,23 @@ where
 		let target = T::AddressMapping::into_account_id(transfer.target);
 		let asset_id = NativeAssetId::<T>::get().unwrap();
 
-		T::Assets::transfer(
-			asset_id,
-			&source,
-			&target,
-			transfer
-				.value
-				.try_into()
-				.map_err(|_| ExitError::OutOfFund)?,
-			Preservation::Protect,
-		)
-		.map_err(|_| ExitError::OutOfFund)?;
+		if transfer.value.is_zero() {
+			return Ok(());
+		} else {
+			T::Assets::transfer(
+				asset_id,
+				&source,
+				&target,
+				transfer
+					.value
+					.try_into()
+					.map_err(|_| ExitError::OutOfFund)?,
+				Preservation::Protect,
+			)
+			.map_err(|_| ExitError::OutOfFund)?;
 
-		Ok(())
+			Ok(())
+		}
 	}
 
 	fn reset_balance(&mut self, _address: H160) {
