@@ -25,11 +25,7 @@ use evm::{
 };
 // Substrate
 use frame_support::{
-	traits::{
-		fungibles::Mutate,
-		tokens::{currency::Currency, ExistenceRequirement, Preservation},
-		Get, Time,
-	},
+	traits::{fungibles::Mutate, tokens::Preservation, Get, Time},
 	weights::Weight,
 };
 use sp_core::{H160, H256, U256};
