@@ -1,4 +1,4 @@
-# Frontier
+# InfraBlockchain Frontier
 
 Frontier is the EVM backbone of Infrablockchain.
 

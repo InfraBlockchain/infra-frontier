@@ -25,7 +25,11 @@ use evm::{
 };
 // Substrate
 use frame_support::{
-	traits::{fungibles::Mutate, tokens::Preservation, Get, Time},
+	traits::{
+		fungibles::Mutate,
+		tokens::{Preservation},
+		Get, Time,
+	},
 	weights::Weight,
 };
 use sp_core::{H160, H256, U256};
@@ -191,35 +195,33 @@ where
 			});
 		}
 
-		let (total_fee_per_gas, _actual_priority_fee_per_gas) =
-			match (max_fee_per_gas, max_priority_fee_per_gas, is_transactional) {
+		let total_fee_per_gas = if is_transactional {
+			match (max_fee_per_gas, max_priority_fee_per_gas) {
 				// Zero max_fee_per_gas for validated transactional calls exist in XCM -> EVM
 				// because fees are already withdrawn in the xcm-executor.
-				(Some(max_fee), _, true) if max_fee.is_zero() => (U256::zero(), U256::zero()),
+				(Some(max_fee), _) if max_fee.is_zero() => U256::zero(),
 				// With no tip, we pay exactly the base_fee
-				(Some(_), None, _) => (base_fee, U256::zero()),
+				(Some(_), None) => base_fee,
 				// With tip, we include as much of the tip on top of base_fee that we can, never
 				// exceeding max_fee_per_gas
-				(Some(max_fee_per_gas), Some(max_priority_fee_per_gas), _) => {
+				(Some(max_fee_per_gas), Some(max_priority_fee_per_gas)) => {
 					let actual_priority_fee_per_gas = max_fee_per_gas
 						.saturating_sub(base_fee)
 						.min(max_priority_fee_per_gas);
-					(
-						base_fee.saturating_add(actual_priority_fee_per_gas),
-						actual_priority_fee_per_gas,
-					)
+
+					base_fee.saturating_add(actual_priority_fee_per_gas)
 				}
-				// Gas price check is skipped for non-transactional calls that don't
-				// define a `max_fee_per_gas` input.
-				(None, _, false) => (Default::default(), U256::zero()),
-				// Unreachable, previously validated. Handle gracefully.
 				_ => {
 					return Err(RunnerError {
 						error: Error::<T>::GasPriceTooLow,
 						weight,
 					})
 				}
-			};
+			}
+		} else {
+			// Gas price check is skipped for non-transactional calls or creates
+			Default::default()
+		};
 
 		// After eip-1559 we make sure the account can pay both the evm execution and priority fees.
 		let total_fee =
@@ -1012,7 +1014,7 @@ where
 				ExternalOperation::IsEmpty => {
 					weight_info.try_record_proof_size_or_fail(IS_EMPTY_CHECK_PROOF_SIZE)?
 				}
-				ExternalOperation::Write => {
+				ExternalOperation::Write(_) => {
 					weight_info.try_record_proof_size_or_fail(WRITE_PROOF_SIZE)?
 				}
 			};
@@ -1151,6 +1153,7 @@ where
 		&mut self,
 		ref_time: Option<u64>,
 		proof_size: Option<u64>,
+		_storage_growth: Option<u64>,
 	) -> Result<(), ExitError> {
 		let weight_info = if let (Some(weight_info), _) = self.info_mut() {
 			weight_info
