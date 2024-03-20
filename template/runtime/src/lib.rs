@@ -303,7 +303,6 @@ impl pallet_assets::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
 	type AssetId = AssetId;
-	type AssetLink = ();
 	type AssetIdParameter = scale_codec::Compact<AssetId>;
 	type Currency = Balances;
 	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
@@ -313,7 +312,6 @@ impl pallet_assets::Config for Runtime {
 	type MetadataDepositBase = ConstU128<0>;
 	type MetadataDepositPerByte = ConstU128<0>;
 	type ApprovalDeposit = ConstU128<0>;
-	type StringLimit = ConstU32<20>;
 	type Freezer = ();
 	type Extra = ();
 	type CallbackHandle = ();
