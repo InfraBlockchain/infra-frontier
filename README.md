@@ -116,3 +116,10 @@ If the affected crate does not yet have `-dev` suffix:
 
 If your pull request introduces a new crate, please set its version to
 `1.0.0-dev`.
+
+### Build check
+
+2024.08.08 기준 `21666c0914e45ee582d0b89e25d4ddddcbe0306a` commit 빌드 확인 (당시 기준 master 브랜치)
+
+```bash
+```
